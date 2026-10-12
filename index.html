@@ -30,12 +30,16 @@
 @media (max-width:360px){.wrap{padding-left:9px;padding-right:9px}.mobileDock button{padding:0 12px;font-size:12px}}
 @media (prefers-reduced-motion:reduce){button{transition:none}}
 </style>
+<style>
+.smart{margin:0 0 21px;border:1px solid #c9d9fc;background:linear-gradient(135deg,#f0f6ff,#f7efff);border-radius:18px;padding:20px;box-shadow:0 8px 24px #254bb113}.smart h2{font-size:19px;margin:0 0 7px;color:#183968}.smart p{font-size:13px;color:#61718d;line-height:1.5;margin:0 0 14px}.smart textarea{display:block;resize:vertical;width:100%;min-height:160px;max-height:420px;background:white;border:1px solid #c9d9f7;border-radius:12px;padding:14px;font:14px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#283955;outline:none}.smart textarea:focus{border-color:#8753e8;box-shadow:0 0 0 3px #8753e820}.smartActions{display:flex;gap:9px;margin-top:12px;flex-wrap:wrap}.smartActions .autoBtn{background:linear-gradient(100deg,#6744ed,#a45be8);color:white;min-height:48px;padding:12px 20px;flex:1}.smartActions .eraseBtn{background:#e8e8f8;color:#55467c;padding:12px 17px}.smartResult{font-size:13px;font-weight:650;min-height:19px;margin-top:11px;color:#225ac2;line-height:1.6}.smartResult.error{color:#b03b4c}.smart small{display:block;margin-top:8px;color:#71809a;font-size:11px;line-height:1.5}@media(max-width:620px){.smart{padding:15px;border-radius:16px}.smart textarea{font-size:14px;min-height:190px}.smartActions button{font-size:13px}.smartActions .autoBtn{width:100%;flex-basis:100%}}
+</style>
 </head>
 <body>
 <main class="wrap">
 <div class="eyebrow">Bulk payment utility · Offline ready</div>
 <h1>Payment Excel Generator</h1>
 <p class="sub">Add as many beneficiaries as you need, review the rows, and download a bank-format Excel workbook. Everything runs locally in your browser.</p>
+<section class="smart" aria-labelledby="smartTitle"><h2 id="smartTitle">✦ Smart Auto Fill</h2><p>Paste one or multiple WhatsApp payment messages below. The website finds each beneficiary's name, account number, IFSC and amount — including messages written with bold Unicode letters. Unclear entries are flagged instead of disappearing.</p><textarea id="smartPaste" spellcheck="false" autocapitalize="off" aria-label="Paste copied payment messages" placeholder="Paste copied messages here…&#10;&#10;BANK AC HOLDER NAME ➣ Name&#10;BANK AC NUMBER ➣ 1234567890&#10;IFSC CODE ➣ SBIN0012345&#10;AMOUNT ➣ 5500"></textarea><div class="smartActions"><button class="autoBtn" id="smartFill" type="button">✦ Auto Fill All Payees</button><button class="eraseBtn" id="clearPaste" type="button">Clear text</button></div><div class="smartResult" id="smartResult" aria-live="polite"></div><small>New entries are added to your list without replacing existing payees. Review extracted details before exporting. Messages stay on your device.</small></section>
 <section class="card"><div class="cardHead"><h2>Beneficiary entries</h2><span class="pill" id="rowCount">1 entry</span></div><div class="mobileHint">Fill the 4 fields for each beneficiary. Tap <strong>Add payee</strong> to enter another.</div><div class="rows" id="rows"></div><div id="status" class="status" role="status" aria-live="polite"></div><div class="bottom"><div class="leftActions"><button class="secondary" id="addBtn" type="button">+ Add payee</button><button class="ghost" id="clearBtn" type="button">Clear all</button></div><div class="rightActions"><button class="primary" id="downloadBtn" type="button">↓ Download Excel (.xlsx)</button></div></div></section>
 <div class="note"><strong>Fixed Excel values:</strong> Payment Type = NFT; Source Account = 409002594218; Currency = INR; Destination Narration = From SHESTYLEBU; Beneficiary Account Type = Saving. Customer reference numbers begin at 1. Destination Bank remains blank. A random Gmail-style address is created for each row. Account numbers, customer reference numbers, and amounts are saved as text with an Excel apostrophe prefix (visible in the formula bar, not in the cell).</div>
 <section class="card preview"><div class="cardHead"><h2>Excel preview</h2><span class="pill">13 columns · A–M</span></div><p class="swipeHint">Swipe sideways to view all Excel columns →</p><div class="previewWrap" tabindex="0" aria-label="Scroll horizontally to inspect Excel preview"><table id="preview"></table></div></section>
@@ -80,6 +84,65 @@ function makeWorkbook(rs){const files=[
 ['xl/worksheets/sheet1.xml',makeSheet(rs)]];return zip(files);}
 function downloadExcel(){const rs=enteredRows();if(!rs.length){status.textContent='Add at least one payee.';return;}const errs=validate(rs);if(errs){status.textContent=`Please fix ${errs} invalid or missing field${errs!==1?'s':''}. Names cannot be blank; account numbers must contain digits; amounts must be positive; IFSC codes must be 11 characters (e.g. HDFC0001234).`;return;}status.textContent='';const blob=makeWorkbook(rs),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Bulk_Payments_'+new Date().toISOString().slice(0,10)+'.xlsx';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
 document.getElementById('downloadBtn').addEventListener('click',downloadExcel);document.getElementById('dockDownload').addEventListener('click',downloadExcel);
+
+// Robust WhatsApp parser. Parsing is local; ambiguous entries remain visible for review.
+function standardize(s){return s.normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g,'').replace(/\u00A0/g,' ');}
+function classifyLabel(label){let k=standardize(label).toUpperCase().replace(/[^A-Z]/g,'');
+if(/^(SITE(?:NAME)?|IDNAME)$/.test(k))return 'boundary';
+if(/^(?:BANKAC(?:COUNT)?HOLD(?:ER|AR)NAME|BANKHOLDERNAME|ACCOUNTHOLDERNAME|ACCHOLDERNAME|BENEFICIARYNAME|PAYEENAME|BENEFICIARYACCOUNTHOLDERNAME)$/.test(k))return 'name';
+if(/^(?:BANKAC(?:COUNT)?NUMBER|AC(?:COUNT)?NUMBER|AC(?:COUNT)?NO|BANKACCOUNTNO|BENEFICIARYACCOUNTNUMBER|ACCNOUPIPHONE)$/.test(k))return 'account';
+if(/^(?:IFSCCODE|IFSC|IFSCSWIFTIBANCNIC|IFSCSWIFTIBAN|BANKIFSC|BANKIFSCCODE)$/.test(k))return 'ifsc';
+if(/^(?:AMOUNT|AMOUN|REQUESTEDAMOUNT|PAYMENTAMOUNT|TRANSFERAMOUNT)$/.test(k))return 'amount';
+return null;}
+const labelPattern=/^(BANK\s*AC(?:COUNT)?\s*HOLD(?:ER|AR)\s*NAME|BANK\s*HOLDER\s*NAME|ACCOUNT\s*HOLDER\s*NAME|AC\s*HOLDER\s*NAME|BENEFICIARY\s*ACCOUNT\s*HOLDER\s*NAME|BENEFICIARY\s*NAME|PAYEE\s*NAME|BANK\s*AC(?:COUNT)?\s*(?:NUMBER|NO)|AC(?:COUNT)?\s*(?:NUMBER|NO)|ACC\s*NO\s*\/\s*UPI\s*\/\s*PHONE|IFSC\s*\/\s*SWIFT\s*\/\s*IBAN\s*\/\s*CNIC|BANK\s*IFSC\s*CODE|BANK\s*IFSC|IFSC\s*CODE|IFSC|REQUESTED\s*AMOUNT|PAYMENT\s*AMOUNT|TRANSFER\s*AMOUNT|AMOUNT|AMOUN|SITE\s*NAME|ID\s*NAME)\b[ \t]*(.*)$/i;
+function fieldFromLine(line){const m=line.match(labelPattern);if(!m)return null;let f=classifyLabel(m[1]);if(!f)return null;let v=m[2].replace(/^[\s➣➡→:=：\-]+/u,'').trim();return {field:f,value:v};}
+function cleanField(field,value){let v=value.trim().replace(/^[\s'"`]+|[\s'"`]+$/g,'');if(field==='account')return v.replace(/[\s'-]/g,'');if(field==='amount')return v.replace(/[₹,\s]/g,'');if(field==='ifsc')return v.replace(/\s/g,'').toUpperCase();return v;}
+function isValidIFSC(v){return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(v||'');}
+function parsePaymentMessages(text){const lines=standardize(text).replace(/\r/g,'').split('\n').map(s=>s.trim());const records=[];let current={},awaiting=null;
+const push=()=>{if(['name','account','amount','ifsc'].some(k=>current[k]))records.push(current);current={};awaiting=null;};
+for(let i=0;i<lines.length;i++){
+ const line=lines[i];if(!line)continue;
+ const item=fieldFromLine(line);
+ if(item){
+  const {field}=item;let value=item.value;
+  if(field==='boundary'){
+   if(/^SITE\s*NAME/i.test(line)&&['name','account','amount','ifsc'].some(k=>current[k]))push();
+   awaiting=null;continue;
+  }
+  if(!value){awaiting=field;continue;}
+  value=cleanField(field,value);
+  if(current[field]!==undefined)push();
+  current[field]=value;awaiting=null;continue;
+ }
+ if(awaiting){current[awaiting]=cleanField(awaiting,line);awaiting=null;continue;}
+ // Six bare lines: site, user ID, beneficiary name, amount, account, IFSC.
+ // Only match when the last three fields make an unambiguous numerical signature.
+ if(i+5<lines.length && /^[\d₹,]+(?:\.\d{1,2})?$/.test(lines[i+3]) && /^\d{8,20}$/.test(lines[i+4]) && isValidIFSC(lines[i+5].toUpperCase()) &&
+    !fieldFromLine(lines[i+1]) && !fieldFromLine(lines[i+2]) && /^\S+/.test(lines[i]) && !/^\d+$/.test(lines[i+2])){
+   if(['name','account','amount','ifsc'].some(k=>current[k]))push();
+   records.push({name:lines[i+2],amount:cleanField('amount',lines[i+3]),account:lines[i+4],ifsc:lines[i+5].toUpperCase(),bare:true});i+=5;continue;
+ }
+}
+push();return records;}
+function fillParsed(){const output=document.getElementById('smartResult');const paste=document.getElementById('smartPaste').value;
+const parsed=parsePaymentMessages(paste);output.classList.remove('error');
+if(!parsed.length){output.textContent='No payment entries recognized. Check the pasted messages.';output.classList.add('error');return;}
+const existing=enteredRows();if(existing.length===1&&!existing[0].name&&!existing[0].account&&!existing[0].amount&&!existing[0].ifsc){rows.innerHTML='';emailById.clear();}
+let complete=0,needReview=0;
+for(const r of parsed){
+ const ok=!!r.name&&!/^\d+$/.test(r.name)&&/^\d+$/.test(r.account||'')&&isValidIFSC(r.ifsc)&&/^\d+(?:\.\d{1,2})?$/.test(r.amount||'')&&Number(r.amount)>0;
+ // Do not guess that a numeric holder name is an account number: it needs manual verification.
+ const data={name:r.name||'',account:r.account||'',amount:r.amount||'',ifsc:r.ifsc||''};
+ if(/^\d+$/.test(data.name))data.name='';
+ addRow(data);
+ if(ok)complete++;else{needReview++;const row=rows.lastElementChild;row.style.borderColor='#f59e0b';row.querySelector('.entryCaption').textContent='Needs review';}
+}
+output.textContent=`Found ${parsed.length} entries: ${complete} complete, ${needReview} need review. ${needReview?'Highlighted entries must be completed before Excel download. ':''}Verify all bank details before export.`;
+output.classList.toggle('error',needReview>0);status.textContent='';
+}
+document.getElementById('smartFill').addEventListener('click',fillParsed);
+document.getElementById('clearPaste').addEventListener('click',()=>{document.getElementById('smartPaste').value='';document.getElementById('smartResult').textContent='';});
+
 addRow();
 </script>
 </body>
